@@ -12,7 +12,6 @@ use solana_sdk::signer::Signer;
 use crate::{
     args::MineArgs,
     error::Error,
-    pool::Pool,
     send_and_confirm::ComputeBudget,
     utils::{
         amount_u64_to_string,
@@ -27,13 +26,7 @@ use crate::{
 impl Miner {
     pub async fn mine(&self, args: MineArgs) -> Result<(), Error> {
         match args.pool_url {
-            Some(ref pool_url) => {
-                let pool = &(Pool {
-                    http_client: reqwest::Client::new(),
-                    pool_url: pool_url.clone(),
-                });
-                self.mine_pool(args, pool).await?;
-            }
+            Some(ref _pool_url) => {}
             None => {
                 self.mine_solo(args).await;
             }
@@ -115,69 +108,6 @@ impl Miner {
 
             // Submit transaction
             self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false).await.ok();
-        }
-    }
-
-    async fn mine_pool(&self, args: MineArgs, pool: &Pool) -> Result<(), Error> {
-        // register, if needed
-        let mut pool_member = pool.post_pool_register(self).await?;
-        let nonce_index = pool_member.id as u64;
-        // get on-chain pool accounts
-        let pool_address = pool.get_pool_address().await?;
-        let mut pool_member_onchain = pool.get_pool_member_onchain(
-            self,
-            pool_address.address
-        ).await?;
-        // Check num threads
-        self.check_num_cores(args.cores);
-        // Start mining loop
-        let mut last_hash_at = 0;
-        let mut last_balance = 0;
-        loop {
-            // Fetch latest challenge
-            let member_challenge = pool.get_updated_pool_challenge(last_hash_at).await?;
-            // Print progress
-            println!(
-                "Claimable ORE balance: {}",
-                amount_u64_to_string(pool_member_onchain.balance)
-            );
-            if last_hash_at.gt(&0) {
-                println!(
-                    "Change of ORE credits in pool: {}",
-                    amount_u64_to_string(
-                        pool_member.total_balance.saturating_sub(last_balance) as u64
-                    )
-                );
-            }
-            // Increment last balance and hash
-            last_balance = pool_member.total_balance;
-            last_hash_at = member_challenge.challenge.lash_hash_at;
-            // Compute cutoff time
-            let cutoff_time = self.get_cutoff(last_hash_at, member_challenge.buffer).await;
-            // Build nonce indices
-            let num_total_members = member_challenge.num_total_members.max(1);
-            let u64_unit = u64::MAX.saturating_div(num_total_members);
-            let left_bound = u64_unit.saturating_mul(nonce_index);
-            let range_per_core = u64_unit.saturating_div(args.cores);
-            let mut nonce_indices = Vec::with_capacity(args.cores as usize);
-            for n in 0..args.cores {
-                let index = left_bound + n * range_per_core;
-                nonce_indices.push(index);
-            }
-            // Run drillx
-            let solution = Self::find_hash_par(
-                member_challenge.challenge.challenge,
-                cutoff_time,
-                args.cores,
-                member_challenge.challenge.min_difficulty as u32,
-                nonce_indices.as_slice()
-            ).await;
-            // Post solution to operator
-            pool.post_pool_solution(self, &solution).await?;
-            // Get updated pool member
-            pool_member = pool.get_pool_member(self).await?;
-            // Get updated on-chain pool member
-            pool_member_onchain = pool.get_pool_member_onchain(self, pool_address.address).await?;
         }
     }
 

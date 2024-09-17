@@ -9,7 +9,6 @@ mod cu_limits;
 mod error;
 
 mod mine;
-mod pool;
 mod proof;
 mod rewards;
 mod send_and_confirm;

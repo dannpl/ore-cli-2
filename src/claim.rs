@@ -3,13 +3,12 @@ use std::str::FromStr;
 use colored::*;
 use ore_api::consts::MINT_ADDRESS;
 use solana_program::pubkey::Pubkey;
-use solana_sdk::signature::{ Signature, Signer };
+use solana_sdk::signature::Signer;
 use spl_token::amount_to_ui_amount;
 
 use crate::{
     args::ClaimArgs,
     cu_limits::CU_LIMIT_CLAIM,
-    pool::Pool,
     send_and_confirm::ComputeBudget,
     utils::{ amount_f64_to_u64, ask_confirm, get_proof_with_authority },
     Miner,
@@ -18,14 +17,7 @@ use crate::{
 impl Miner {
     pub async fn claim(&self, args: ClaimArgs) -> Result<(), crate::error::Error> {
         match args.pool_url {
-            Some(ref pool_url) => {
-                let pool = &(Pool {
-                    http_client: reqwest::Client::new(),
-                    pool_url: pool_url.clone(),
-                });
-                let _ = self.claim_from_pool(args, pool).await?;
-                Ok(())
-            }
+            Some(ref _pool_url) => { Ok(()) }
             None => {
                 self.claim_from_proof(args).await;
                 Ok(())
@@ -86,72 +78,6 @@ impl Miner {
         // Send and confirm
         ixs.push(ore_api::instruction::claim(pubkey, beneficiary, amount));
         self.send_and_confirm(&ixs, ComputeBudget::Fixed(CU_LIMIT_CLAIM), false).await.ok();
-    }
-
-    async fn claim_from_pool(
-        &self,
-        args: ClaimArgs,
-        pool: &Pool
-    ) -> Result<Signature, crate::error::Error> {
-        let pool_address = pool.get_pool_address().await?;
-        let member = pool.get_pool_member_onchain(self, pool_address.address).await?;
-        let mut ixs = vec![];
-        let beneficiary = match args.to {
-            None => self.initialize_ata(self.signer().pubkey()).await,
-            Some(to) => {
-                // Create beneficiary token account, if needed
-                let wallet = Pubkey::from_str(&to).expect("Failed to parse wallet address");
-                let benefiary_tokens = spl_associated_token_account::get_associated_token_address(
-                    &wallet,
-                    &MINT_ADDRESS
-                );
-                if self.rpc_client.get_token_account(&benefiary_tokens).await.is_err() {
-                    ixs.push(
-                        spl_associated_token_account::instruction::create_associated_token_account(
-                            &self.signer().pubkey(),
-                            &wallet,
-                            &ore_api::consts::MINT_ADDRESS,
-                            &spl_token::id()
-                        )
-                    );
-                }
-                benefiary_tokens
-            }
-        };
-
-        // Parse amount to claim
-        let amount = if let Some(amount) = args.amount {
-            amount_f64_to_u64(amount)
-        } else {
-            member.balance
-        };
-
-        // Confirm user wants to claim
-        if
-            !ask_confirm(
-                format!(
-                    "\nYou are about to claim {}.\n\nAre you sure you want to continue? [Y/n]",
-                    format!(
-                        "{} ORE",
-                        amount_to_ui_amount(amount, ore_api::consts::TOKEN_DECIMALS)
-                    ).bold()
-                ).as_str()
-            )
-        {
-            return Err(crate::error::Error::Internal("exited claim".to_string()));
-        }
-
-        // Send and confirm
-        ixs.push(
-            ore_pool_api::sdk::claim(
-                self.signer().pubkey(),
-                beneficiary,
-                pool_address.address,
-                pool_address.bump,
-                amount
-            )
-        );
-        self.send_and_confirm(&ixs, ComputeBudget::Fixed(50_000), false).await.map_err(From::from)
     }
 
     async fn initialize_ata(&self, wallet: Pubkey) -> Pubkey {

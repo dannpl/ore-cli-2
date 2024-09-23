@@ -172,12 +172,12 @@ impl Miner {
             .max_by_key(|&(_, difficulty, _)| difficulty)
             .unwrap_or((0, 0, Hash::default()));
 
-        progress_bar.finish_with_message(
-            format!(
-                "Best hash: {} (difficulty {})",
-                bs58::encode(best_result.2.h).into_string(),
-                best_result.1
-            )
+        progress_bar.finish();
+
+        println!(
+            "Best hash: {} (difficulty {})",
+            bs58::encode(best_result.2.h).into_string(),
+            best_result.1
         );
 
         Solution::new(best_result.2.d, best_result.0.to_le_bytes())

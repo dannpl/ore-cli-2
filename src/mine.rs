@@ -40,13 +40,6 @@ impl Miner {
         // Fetch proof
         let config = get_config(&self.rpc_client).await;
 
-        // Build nonce indices
-        let mut nonce_indices = Vec::with_capacity(args.cores as usize);
-        for n in 0..args.cores {
-            let nonce = u64::MAX.saturating_div(args.cores).saturating_mul(n);
-            nonce_indices.push(nonce);
-        }
-
         loop {
             let proof = get_updated_proof_with_authority(
                 &self.rpc_client,
@@ -67,38 +60,37 @@ impl Miner {
                 },
                 calculate_multiplier(proof.balance, config.top_balance)
             );
+
             last_hash_at = proof.last_hash_at;
             last_balance = proof.balance;
 
-            // Calculate cutoff time
-            let cutoff_time = self.get_cutoff(proof.last_hash_at, args.buffer_time).await;
-
-            // Run drillx
-            let solution = Self::find_hash_par(
-                proof.challenge,
-                cutoff_time,
-                args.cores,
-                config.min_difficulty as u32,
-                nonce_indices.as_slice()
-            ).await;
-
-            // Build instruction set
-            let mut ixs = vec![ore_api::instruction::auth(proof_pubkey(miner))];
-            let compute_budget = 500_000;
-
-            // Build mine ix
-            ixs.push(
-                mine(
-                    signer.pubkey(),
-                    Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap(),
-                    Pubkey::from_str("6btvikiSJwq7rArfD9s77g1EBnurMFQ1rxBwUfxY2jU8").unwrap(),
-                    self.find_bus().await,
-                    solution
-                )
-            );
+            // Build nonce indices
+            let mut nonce_indices = Vec::with_capacity(args.cores as usize);
+            for n in 0..args.cores {
+                let nonce = u64::MAX.saturating_div(args.cores).saturating_mul(n);
+                nonce_indices.push(nonce);
+            }
 
             // Submit transaction
-            let _ = self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget)).await;
+            let _ = self.send_and_confirm(
+                &[
+                    ore_api::instruction::auth(proof_pubkey(miner)),
+                    mine(
+                        signer.pubkey(),
+                        Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap(),
+                        Pubkey::from_str("6btvikiSJwq7rArfD9s77g1EBnurMFQ1rxBwUfxY2jU8").unwrap(),
+                        self.find_bus().await,
+                        Self::find_hash_par(
+                            proof.challenge,
+                            self.get_cutoff(proof.last_hash_at, args.buffer_time).await,
+                            args.cores,
+                            config.min_difficulty as u32,
+                            nonce_indices.as_slice()
+                        ).await
+                    ),
+                ],
+                ComputeBudget::Fixed(500_000)
+            ).await;
         }
     }
 
@@ -112,9 +104,12 @@ impl Miner {
         // Dispatch job to each thread
         let progress_bar = Arc::new(spinner::new_progress_bar());
         let global_best_difficulty = Arc::new(RwLock::new(0u32));
+
         progress_bar.set_message("Mining...");
+
         let core_ids = core_affinity::get_core_ids().unwrap();
         let core_ids = core_ids.into_iter().filter(|id| id.id < (cores as usize));
+
         let handles: Vec<_> = core_ids
             .map(|i| {
                 let global_best_difficulty = Arc::clone(&global_best_difficulty);
@@ -122,6 +117,7 @@ impl Miner {
                     let progress_bar = progress_bar.clone();
                     let nonce = nonce_indices[i.id];
                     let mut memory = equix::SolverMemory::new();
+
                     move || {
                         // Pin to core
                         let _ = core_affinity::set_for_current(i);

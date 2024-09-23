@@ -11,7 +11,6 @@ use solana_sdk::signer::Signer;
 
 use crate::{
     args::MineArgs,
-    error::Error,
     send_and_confirm::ComputeBudget,
     utils::{
         amount_u64_to_string,
@@ -24,18 +23,7 @@ use crate::{
 };
 
 impl Miner {
-    pub async fn mine(&self, args: MineArgs) -> Result<(), Error> {
-        match args.pool_url {
-            Some(ref _pool_url) => {}
-            None => {
-                self.mine_solo(args).await;
-            }
-        }
-        Ok(())
-    }
-
-    async fn mine_solo(&self, args: MineArgs) {
-        // Open account, if needed.
+    pub async fn mine(&self, args: MineArgs) {
         let signer = self.signer();
 
         println!("{} {}", "Mining with".bold().green(), signer.pubkey());
@@ -43,7 +31,6 @@ impl Miner {
         let miner = Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap();
 
         // Check num threads
-        self.check_num_cores(args.cores);
 
         // Start mining loop
         let mut last_hash_at = 0;
@@ -107,7 +94,7 @@ impl Miner {
             );
 
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), true).await.ok();
+            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget)).await.ok();
         }
     }
 

@@ -1,8 +1,6 @@
 mod args;
 mod balance;
 mod benchmark;
-mod busses;
-mod config;
 mod cu_limits;
 mod error;
 
@@ -35,10 +33,6 @@ enum Commands {
     #[command(about = "Fetch an account balance")] Balance(BalanceArgs),
 
     #[command(about = "Benchmark your hashpower")] Benchmark(BenchmarkArgs),
-
-    #[command(about = "Fetch the bus account balances")] Busses(BussesArgs),
-
-    #[command(about = "Fetch the program config")] Config(ConfigArgs),
 
     #[command(about = "Start mining")] Mine(MineArgs),
 
@@ -147,12 +141,7 @@ async fn main() {
     }
 
     let miner = Arc::new(
-        Miner::new(
-            Arc::new(rpc_client),
-            Some(default_keypair),
-            Arc::new(jito_client),
-            tip
-        )
+        Miner::new(Arc::new(rpc_client), Some(default_keypair), Arc::new(jito_client), tip)
     );
 
     // Execute user command.
@@ -163,17 +152,7 @@ async fn main() {
         Commands::Benchmark(args) => {
             miner.benchmark(args).await;
         }
-        Commands::Busses(_) => {
-            miner.busses().await;
-        }
-        Commands::Config(_) => {
-            miner.config().await;
-        }
-        Commands::Mine(args) => {
-            if let Err(err) = miner.mine(args).await {
-                println!("{:?}", err);
-            }
-        }
+        Commands::Mine(args) => { miner.mine(args).await }
         Commands::Proof(args) => {
             miner.proof(args).await;
         }

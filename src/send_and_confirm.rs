@@ -18,6 +18,8 @@ pub enum ComputeBudget {
     Fixed(u32),
 }
 
+const MAX_RETRIES: u32 = 2;
+
 impl Miner {
     pub async fn send_and_confirm(
         &self,
@@ -49,13 +51,44 @@ impl Miner {
         tx.sign(&[&signer], hash);
 
         progress_bar.set_message(format!("Submitting transaction..."));
+        let mut retry_count = 0;
 
-        match send_client.send_transaction(&tx).await {
-            Ok(_) => println!("Mining transaction confirmed successfully"),
-            Err(e) => println!("Mining transaction failed: {}", e),
+        loop {
+            match send_client.send_transaction(&tx).await {
+                Ok(signature) => {
+                    println!("Transaction submitted successfully. Signature: {}", signature);
+                    // Wait for confirmation
+                    match
+                        client.confirm_transaction_with_spinner(
+                            &signature,
+                            &hash,
+                            client.commitment()
+                        ).await
+                    {
+                        Ok(_) => {
+                            println!("Mining transaction confirmed successfully");
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            println!("Transaction failed to confirm: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Mining transaction failed: {}", e);
+                }
+            }
+
+            retry_count += 1;
+            if retry_count >= MAX_RETRIES {
+                println!("Max retries exceeded. Aborting.");
+                return Err(());
+            }
+
+            println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);
+            // Optional: Add a delay before retrying
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
-
-        Ok(())
     }
 
     fn get_compute_budget_ix(&self, compute_budget: ComputeBudget) -> Instruction {

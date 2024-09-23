@@ -18,7 +18,7 @@ pub enum ComputeBudget {
     Fixed(u32),
 }
 
-const MAX_RETRIES: u32 = 2;
+const MAX_RETRIES: u32 = 5;
 
 impl Miner {
     pub async fn send_and_confirm(

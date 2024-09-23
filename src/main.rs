@@ -26,7 +26,6 @@ use utils::Tip;
 struct Miner {
     pub keypair_filepath: Option<String>,
     pub rpc_client: Arc<RpcClient>,
-    pub fee_payer_filepath: Option<String>,
     pub jito_client: Arc<RpcClient>,
     pub tip: Arc<std::sync::RwLock<u64>>,
 }
@@ -120,7 +119,6 @@ async fn main() {
     // Initialize miner.
     let cluster = args.rpc.unwrap_or(cli_config.json_rpc_url);
     let default_keypair = args.keypair.unwrap_or(cli_config.keypair_path.clone());
-    let fee_payer_filepath = args.fee_payer.unwrap_or(default_keypair.clone());
     let rpc_client = RpcClient::new_with_commitment(cluster, CommitmentConfig::confirmed());
     let jito_client = RpcClient::new(
         "https://mainnet.block-engine.jito.wtf/api/v1/transactions".to_string()
@@ -152,7 +150,6 @@ async fn main() {
         Miner::new(
             Arc::new(rpc_client),
             Some(default_keypair),
-            Some(fee_payer_filepath),
             Arc::new(jito_client),
             tip
         )
@@ -194,14 +191,12 @@ impl Miner {
     pub fn new(
         rpc_client: Arc<RpcClient>,
         keypair_filepath: Option<String>,
-        fee_payer_filepath: Option<String>,
         jito_client: Arc<RpcClient>,
         tip: Arc<std::sync::RwLock<u64>>
     ) -> Self {
         Self {
             rpc_client,
             keypair_filepath,
-            fee_payer_filepath,
             jito_client,
             tip,
         }
@@ -214,16 +209,6 @@ impl Miner {
                     format!("No keypair found at {}", filepath).as_str()
                 ),
             None => panic!("No keypair provided"),
-        }
-    }
-
-    pub fn fee_payer(&self) -> Keypair {
-        match self.fee_payer_filepath.clone() {
-            Some(filepath) =>
-                read_keypair_file(filepath.clone()).expect(
-                    format!("No fee payer keypair found at {}", filepath).as_str()
-                ),
-            None => panic!("No fee payer keypair provided"),
         }
     }
 }

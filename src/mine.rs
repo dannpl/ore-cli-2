@@ -42,6 +42,10 @@ impl Miner {
         // Fetch proof
         let config = get_config(&self.rpc_client).await;
 
+        let nonce_indices: Vec<u64> = (0..args.cores)
+            .map(|n| u64::MAX.saturating_div(args.cores).saturating_mul(n))
+            .collect();
+
         loop {
             let proof = get_updated_proof_with_authority(
                 &self.rpc_client,
@@ -66,13 +70,6 @@ impl Miner {
             last_hash_at = proof.last_hash_at;
             last_balance = proof.balance;
 
-            // Build nonce indices
-            let mut nonce_indices = Vec::with_capacity(args.cores as usize);
-            for n in 0..args.cores {
-                let nonce = u64::MAX.saturating_div(args.cores).saturating_mul(n);
-                nonce_indices.push(nonce);
-            }
-
             // Submit transaction
             let _ = self.send_and_confirm(
                 &[
@@ -84,7 +81,7 @@ impl Miner {
                         self.find_bus().await,
                         Self::find_hash_par(
                             proof.challenge,
-                            self.get_cutoff(proof.last_hash_at, 0).await,
+                            self.get_cutoff(proof.last_hash_at, args.buffer_time).await,
                             args.cores,
                             config.min_difficulty as u32,
                             nonce_indices.as_slice()

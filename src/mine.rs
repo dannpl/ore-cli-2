@@ -31,13 +31,23 @@ impl Miner {
         let miner = Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap();
 
         // Check num threads
+        self.check_num_cores(args.cores);
 
         // Start mining loop
         let mut last_hash_at = 0;
         let mut last_balance = 0;
+
+        // Fetch proof
+        let config = get_config(&self.rpc_client).await;
+
+        // Build nonce indices
+        let mut nonce_indices = Vec::with_capacity(args.cores as usize);
+        for n in 0..args.cores {
+            let nonce = u64::MAX.saturating_div(args.cores).saturating_mul(n);
+            nonce_indices.push(nonce);
+        }
+
         loop {
-            // Fetch proof
-            let config = get_config(&self.rpc_client).await;
             let proof = get_updated_proof_with_authority(
                 &self.rpc_client,
                 miner,
@@ -62,13 +72,6 @@ impl Miner {
 
             // Calculate cutoff time
             let cutoff_time = self.get_cutoff(proof.last_hash_at, args.buffer_time).await;
-
-            // Build nonce indices
-            let mut nonce_indices = Vec::with_capacity(args.cores as usize);
-            for n in 0..args.cores {
-                let nonce = u64::MAX.saturating_div(args.cores).saturating_mul(n);
-                nonce_indices.push(nonce);
-            }
 
             // Run drillx
             let solution = Self::find_hash_par(

@@ -1,19 +1,14 @@
 use std::str::FromStr;
 
 use rand::seq::SliceRandom;
-use solana_client::{ client_error::Result as ClientResult, rpc_config::RpcSendTransactionConfig };
+use solana_client::client_error::Result as ClientResult;
 use solana_program::{ instruction::Instruction, pubkey::Pubkey, system_instruction::transfer };
 use solana_rpc_client::spinner;
 use solana_sdk::{
-    commitment_config::CommitmentLevel,
     compute_budget::ComputeBudgetInstruction,
-    signature::{ Signature, Signer },
+    signature::Signer,
     transaction::Transaction,
 };
-use solana_transaction_status::UiTransactionEncoding;
-use std::time::Duration;
-
-const MAX_RETRIES: usize = 0;
 
 use crate::Miner;
 
@@ -28,7 +23,7 @@ impl Miner {
         &self,
         ixs: &[Instruction],
         compute_budget: ComputeBudget
-    ) -> ClientResult<Signature> {
+    ) -> Result<(), ()> {
         let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
         let client = self.rpc_client.clone();
@@ -40,44 +35,27 @@ impl Miner {
 
         if jito_tip > 0 {
             send_client = self.jito_client.clone();
-            final_ixs.push(self.get_tip_transfer_ix(signer.pubkey(), jito_tip)?);
+            final_ixs.push(self.get_tip_transfer_ix(signer.pubkey(), jito_tip).unwrap());
         }
 
         final_ixs.extend_from_slice(ixs);
 
-        let send_cfg = RpcSendTransactionConfig {
-            skip_preflight: true,
-            preflight_commitment: Some(CommitmentLevel::Processed),
-            encoding: Some(UiTransactionEncoding::Base64),
-            max_retries: Some(MAX_RETRIES),
-            min_context_slot: None,
-        };
+        let (hash, _slot) = client
+            .get_latest_blockhash_with_commitment(self.rpc_client.commitment()).await
+            .unwrap();
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
 
-        let (hash, _slot) = client.get_latest_blockhash_with_commitment(
-            self.rpc_client.commitment()
-        ).await?;
         tx.sign(&[&signer], hash);
 
-        for attempt in 1..=MAX_RETRIES {
-            progress_bar.set_message(format!("Submitting transaction (attempt {})...", attempt));
-            match send_client.send_transaction_with_config(&tx, send_cfg).await {
-                Ok(sig) => {
-                    progress_bar.finish_with_message(format!("Sent: {}", sig));
+        progress_bar.set_message(format!("Submitting transaction..."));
 
-                    return Ok(sig);
-                }
-                Err(err) => {
-                    progress_bar.set_message(format!("ERROR (attempt {}): {}", attempt, err));
-                    if attempt == MAX_RETRIES {
-                        return Err(err);
-                    }
-                    tokio::time::sleep(Duration::from_millis(1000)).await;
-                }
-            }
+        match send_client.send_transaction(&tx).await {
+            Ok(_) => println!("Mining transaction confirmed successfully"),
+            Err(e) => println!("Mining transaction failed: {}", e),
         }
-        unreachable!()
+
+        Ok(())
     }
 
     fn get_compute_budget_ix(&self, compute_budget: ComputeBudget) -> Instruction {
@@ -100,6 +78,7 @@ impl Miner {
         ];
 
         let to = Pubkey::from_str(TIPS.choose(&mut rand::thread_rng()).unwrap());
+
         Ok(transfer(&from, &to.unwrap(), amount))
     }
 }

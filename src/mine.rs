@@ -43,6 +43,7 @@ impl Miner {
                 miner,
                 last_hash_at
             ).await;
+
             println!(
                 "\n\nStake: {} ORE\n{}  Multiplier: {:12}x",
                 amount_u64_to_string(proof.balance),
@@ -94,7 +95,7 @@ impl Miner {
             );
 
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget)).await.ok();
+            let _ = self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget)).await;
         }
     }
 

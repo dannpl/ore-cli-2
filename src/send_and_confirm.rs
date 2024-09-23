@@ -28,7 +28,7 @@ use crate::utils::get_latest_blockhash_with_retries;
 use crate::Miner;
 
 const RPC_RETRIES: usize = 0;
-const GATEWAY_RETRIES: usize = 150;
+const GATEWAY_RETRIES: usize = 1;
 const CONFIRM_RETRIES: usize = 8;
 
 const CONFIRM_DELAY: u64 = 500;

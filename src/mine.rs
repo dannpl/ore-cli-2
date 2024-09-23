@@ -84,8 +84,9 @@ impl Miner {
                         self.find_bus().await,
                         Self::find_hash_par(
                             proof.challenge,
-                            self.get_cutoff(proof.last_hash_at, args.buffer_time).await,
+                            self.get_cutoff(proof.last_hash_at, 0).await,
                             args.cores,
+                            config.min_difficulty as u32,
                             nonce_indices.as_slice()
                         ).await
                     ),
@@ -99,6 +100,7 @@ impl Miner {
         challenge: [u8; 32],
         cutoff_time: u64,
         cores: u64,
+        min_diff: u32,
         nonce_indices: &[u64]
     ) -> Solution {
         let progress_bar = Arc::new(spinner::new_progress_bar());
@@ -124,7 +126,7 @@ impl Miner {
                     let mut nonce = nonce;
                     let mut best_result = (nonce, 0u32, Hash::default());
 
-                    while timer.elapsed().as_secs() < cutoff_time {
+                    loop {
                         let hxs = drillx::hashes_with_memory(
                             &mut memory,
                             &challenge,
@@ -138,17 +140,22 @@ impl Miner {
                                 global_best_difficulty.fetch_max(difficulty, Ordering::Relaxed);
                             }
                         }
+                        let global_best = global_best_difficulty.load(Ordering::Relaxed);
 
-                        if nonce % 1000 == 0 && id == 0 {
-                            let global_best = global_best_difficulty.load(Ordering::Relaxed);
-                            let remaining = cutoff_time.saturating_sub(timer.elapsed().as_secs());
-                            progress_bar.set_message(
-                                format!(
-                                    "Mining... (difficulty {}, time {})",
-                                    global_best,
-                                    format_duration(remaining as u32)
-                                )
-                            );
+                        let elapsed = timer.elapsed().as_secs();
+
+                        let remaining = cutoff_time.saturating_sub(elapsed);
+
+                        progress_bar.set_message(
+                            format!(
+                                "Mining... (difficulty {}, time {})",
+                                global_best,
+                                format_duration(remaining as u32)
+                            )
+                        );
+
+                        if elapsed >= cutoff_time && global_best >= min_diff {
+                            break;
                         }
 
                         nonce += 1;

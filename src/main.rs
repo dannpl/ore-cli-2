@@ -2,8 +2,6 @@ mod args;
 mod balance;
 mod benchmark;
 mod busses;
-mod claim;
-mod close;
 mod config;
 mod cu_limits;
 mod error;
@@ -12,9 +10,6 @@ mod mine;
 mod proof;
 mod rewards;
 mod send_and_confirm;
-mod stake;
-mod transfer;
-mod upgrade;
 mod utils;
 
 use futures::StreamExt;
@@ -44,10 +39,6 @@ enum Commands {
 
     #[command(about = "Fetch the bus account balances")] Busses(BussesArgs),
 
-    #[command(about = "Claim your mining rewards")] Claim(ClaimArgs),
-
-    #[command(about = "Close your account to recover rent")] Close(CloseArgs),
-
     #[command(about = "Fetch the program config")] Config(ConfigArgs),
 
     #[command(about = "Start mining")] Mine(MineArgs),
@@ -56,16 +47,6 @@ enum Commands {
 
     #[command(about = "Fetch the current reward rate for each difficulty level")] Rewards(
         RewardsArgs,
-    ),
-
-    #[command(about = "Stake to earn a rewards multiplier")] Stake(StakeArgs),
-
-    #[command(about = "Send ORE to anyone, anywhere in the world.")] Transfer(TransferArgs),
-
-    #[command(about = "Upgrade your ORE tokens from v1 to v2")] Upgrade(UpgradeArgs),
-
-    #[cfg(feature = "admin")] #[command(about = "Initialize the program")] Initialize(
-        InitializeArgs,
     ),
 }
 
@@ -188,14 +169,6 @@ async fn main() {
         Commands::Busses(_) => {
             miner.busses().await;
         }
-        Commands::Claim(args) => {
-            if let Err(err) = miner.claim(args).await {
-                println!("{:?}", err);
-            }
-        }
-        Commands::Close(_) => {
-            miner.close().await;
-        }
         Commands::Config(_) => {
             miner.config().await;
         }
@@ -209,15 +182,6 @@ async fn main() {
         }
         Commands::Rewards(_) => {
             miner.rewards().await;
-        }
-        Commands::Stake(args) => {
-            miner.stake(args).await;
-        }
-        Commands::Transfer(args) => {
-            miner.transfer(args).await;
-        }
-        Commands::Upgrade(args) => {
-            miner.upgrade(args).await;
         }
         #[cfg(feature = "admin")]
         Commands::Initialize(_) => {

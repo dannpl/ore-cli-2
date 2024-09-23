@@ -1,7 +1,5 @@
 use std::str::FromStr;
 
-use colored::*;
-use indicatif::ProgressBar;
 use rand::seq::SliceRandom;
 use solana_client::{ client_error::Result as ClientResult, rpc_config::RpcSendTransactionConfig };
 use solana_program::{
@@ -19,7 +17,6 @@ use solana_sdk::{
 };
 use solana_transaction_status::UiTransactionEncoding;
 
-use crate::utils::get_latest_blockhash_with_retries;
 use crate::Miner;
 
 const RPC_RETRIES: usize = 0;
@@ -39,11 +36,9 @@ impl Miner {
     ) -> ClientResult<Signature> {
         let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
-        let client = self.rpc_client.clone();
         let fee_payer = self.fee_payer();
         let mut send_client = self.rpc_client.clone();
 
-        // Set compute budget
         let mut final_ixs = vec![];
         match compute_budget {
             ComputeBudget::Dynamic => {
@@ -54,10 +49,8 @@ impl Miner {
             }
         }
 
-        // Add in user instructions
         final_ixs.extend_from_slice(ixs);
 
-        // Add jito tip
         let jito_tip = *self.tip.read().unwrap();
         if jito_tip > 0 {
             send_client = self.jito_client.clone();
@@ -85,53 +78,19 @@ impl Miner {
             progress_bar.println(format!("  Jito tip: {} SOL", lamports_to_sol(jito_tip)));
         }
 
-        // Build tx
-        let send_cfg = RpcSendTransactionConfig {
-            skip_preflight: true,
-            preflight_commitment: Some(CommitmentLevel::Confirmed),
-            encoding: Some(UiTransactionEncoding::Base64),
-            max_retries: Some(RPC_RETRIES),
-            min_context_slot: None,
-        };
-        let mut tx = Transaction::new_with_payer(&final_ixs, Some(&fee_payer.pubkey()));
+        progress_bar.set_message(format!("Submitting transaction..."));
 
-        // Submit tx
-        let mut attempts = 0;
-        loop {
-            progress_bar.set_message(format!("Submitting transaction... (attempt {})", attempts));
-
-            // Sign tx with a new blockhash (after approximately ~45 sec)
-            if attempts % 10 == 0 {
-                // Resign the tx
-                let (hash, _slot) = get_latest_blockhash_with_retries(&client).await?;
-                if signer.pubkey() == fee_payer.pubkey() {
-                    tx.sign(&[&signer], hash);
-                } else {
-                    tx.sign(&[&signer, &fee_payer], hash);
-                }
+        let sig = send_client.send_transaction_with_config(
+            &Transaction::new_with_payer(&final_ixs, Some(&fee_payer.pubkey())),
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                preflight_commitment: Some(CommitmentLevel::Confirmed),
+                encoding: Some(UiTransactionEncoding::Base64),
+                max_retries: Some(RPC_RETRIES),
+                min_context_slot: None,
             }
+        ).await;
 
-            // Send transaction
-            attempts += 1;
-            match send_client.send_transaction_with_config(&tx, send_cfg).await {
-                Ok(sig) => {
-                    progress_bar.finish_with_message(format!("Sent: {}", sig));
-                    return Ok(sig);
-                }
-
-                // Handle submit errors
-                Err(err) => {
-                    log_error(&progress_bar, &err.kind().to_string(), false);
-                }
-            }
-        }
-    }
-}
-
-fn log_error(progress_bar: &ProgressBar, err: &str, finish: bool) {
-    if finish {
-        progress_bar.finish_with_message(format!("{} {}", "ERROR".bold().red(), err));
-    } else {
-        progress_bar.println(format!("  {} {}", "ERROR".bold().red(), err));
+        sig
     }
 }

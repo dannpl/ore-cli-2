@@ -70,6 +70,14 @@ impl Miner {
             last_hash_at = proof.last_hash_at;
             last_balance = proof.balance;
 
+            let solution = Self::find_hash_par(
+                proof.challenge,
+                self.get_cutoff(proof.last_hash_at, args.buffer_time).await,
+                args.cores,
+                config.min_difficulty as u32,
+                nonce_indices.as_slice()
+            ).await;
+
             // Submit transaction
             let _ = self.send_and_confirm(
                 &[
@@ -79,13 +87,7 @@ impl Miner {
                         Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap(),
                         Pubkey::from_str("6btvikiSJwq7rArfD9s77g1EBnurMFQ1rxBwUfxY2jU8").unwrap(),
                         self.find_bus().await,
-                        Self::find_hash_par(
-                            proof.challenge,
-                            self.get_cutoff(proof.last_hash_at, args.buffer_time).await,
-                            args.cores,
-                            config.min_difficulty as u32,
-                            nonce_indices.as_slice()
-                        ).await
+                        solution
                     ),
                 ],
                 ComputeBudget::Fixed(500_000)
@@ -202,24 +204,29 @@ impl Miner {
     }
 
     async fn find_bus(&self) -> Pubkey {
-        // Fetch the bus with the largest balance
-        if let Ok(accounts) = self.rpc_client.get_multiple_accounts(&BUS_ADDRESSES).await {
-            let mut top_bus_balance: u64 = 0;
-            let mut top_bus = BUS_ADDRESSES[0];
-            for account in accounts {
-                if let Some(account) = account {
-                    if let Ok(bus) = Bus::try_from_bytes(&account.data) {
-                        if bus.rewards.gt(&top_bus_balance) {
-                            top_bus_balance = bus.rewards;
-                            top_bus = BUS_ADDRESSES[bus.id as usize];
-                        }
-                    }
-                }
+        let accounts = match self.rpc_client.get_multiple_accounts(&BUS_ADDRESSES).await {
+            Ok(accounts) => accounts,
+            Err(_) => {
+                return Self::get_random_bus();
             }
-            return top_bus;
-        }
+        };
 
-        // Otherwise return a random bus
+        accounts
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, account)| {
+                account.and_then(|acc| {
+                    Bus::try_from_bytes(&acc.data)
+                        .ok()
+                        .map(|bus| (index, bus.rewards))
+                })
+            })
+            .max_by_key(|&(_, rewards)| rewards)
+            .map(|(index, _)| BUS_ADDRESSES[index])
+            .unwrap_or_else(Self::get_random_bus)
+    }
+
+    fn get_random_bus() -> Pubkey {
         let i = rand::thread_rng().gen_range(0..BUS_COUNT);
         BUS_ADDRESSES[i]
     }

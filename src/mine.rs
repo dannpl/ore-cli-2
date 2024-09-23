@@ -107,7 +107,7 @@ impl Miner {
             );
 
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false).await.ok();
+            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), true).await.ok();
         }
     }
 

@@ -1,107 +1,244 @@
-use std::str::FromStr;
+use std::{ str::FromStr, time::Duration };
+
+use chrono::Local;
+use colored::*;
+use indicatif::ProgressBar;
+use ore_api::error::OreError;
 use rand::seq::SliceRandom;
-use solana_client::client_error::Result as ClientResult;
-use solana_program::{ instruction::Instruction, pubkey::Pubkey, system_instruction::transfer };
+use solana_client::{
+    client_error::{ ClientError, ClientErrorKind, Result as ClientResult },
+    rpc_config::RpcSendTransactionConfig,
+};
+use solana_program::{
+    instruction::Instruction,
+    native_token::lamports_to_sol,
+    pubkey::Pubkey,
+    system_instruction::transfer,
+};
 use solana_rpc_client::spinner;
 use solana_sdk::{
+    commitment_config::CommitmentLevel,
     compute_budget::ComputeBudgetInstruction,
-    signature::Signer,
+    signature::{ Signature, Signer },
     transaction::Transaction,
 };
-use solana_client::rpc_config::RpcSendTransactionConfig;
+use solana_transaction_status::{ TransactionConfirmationStatus, UiTransactionEncoding };
 
+use crate::utils::get_latest_blockhash_with_retries;
 use crate::Miner;
 
-const MAX_RETRIES: u32 = 5;
+const RPC_RETRIES: usize = 0;
+const _SIMULATION_RETRIES: usize = 4;
+const GATEWAY_RETRIES: usize = 150;
+const CONFIRM_RETRIES: usize = 8;
+
+const CONFIRM_DELAY: u64 = 500;
+const GATEWAY_DELAY: u64 = 0;
 
 impl Miner {
-    pub async fn send_and_confirm(&self, ixs: &[Instruction]) -> Result<(), String> {
+    pub async fn send_and_confirm(&self, ixs: &[Instruction]) -> ClientResult<Signature> {
         let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
         let client = self.rpc_client.clone();
         let mut send_client = self.rpc_client.clone();
 
-        let jito_tip = *self.tip.read().unwrap();
-
+        // Set compute budget
         let mut final_ixs = vec![ComputeBudgetInstruction::set_compute_unit_limit(500_000)];
 
-        if jito_tip > 0 {
-            send_client = self.jito_client.clone();
-            final_ixs.push(
-                self
-                    .get_tip_transfer_ix(signer.pubkey(), jito_tip)
-                    .map_err(|e| format!("Failed to create tip transfer instruction: {}", e))?
-            );
-        }
-
+        // Add in user instructions
         final_ixs.extend_from_slice(ixs);
 
-        let (hash, _slot) = client
-            .get_latest_blockhash_with_commitment(client.commitment()).await
-            .map_err(|e| format!("Failed to get latest blockhash: {}", e))?;
+        // Add jito tip
+        let jito_tip = *self.tip.read().unwrap();
+        if jito_tip > 0 {
+            send_client = self.jito_client.clone();
+        }
+        if jito_tip > 0 {
+            let tip_accounts = [
+                "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
+                "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
+                "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+                "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
+                "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
+                "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+                "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
+                "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
+            ];
+            final_ixs.push(
+                transfer(
+                    &signer.pubkey(),
+                    &Pubkey::from_str(
+                        &tip_accounts.choose(&mut rand::thread_rng()).unwrap().to_string()
+                    ).unwrap(),
+                    jito_tip
+                )
+            );
+            progress_bar.println(format!("  Jito tip: {} SOL", lamports_to_sol(jito_tip)));
+        }
 
+        // Build tx
+        let send_cfg = RpcSendTransactionConfig {
+            skip_preflight: true,
+            preflight_commitment: Some(CommitmentLevel::Confirmed),
+            encoding: Some(UiTransactionEncoding::Base64),
+            max_retries: Some(RPC_RETRIES),
+            min_context_slot: None,
+        };
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
 
-        tx.sign(&[&signer], hash);
-
-        progress_bar.set_message(format!("Submitting transaction..."));
-        let mut retry_count = 0;
-
+        // Submit tx
+        let mut attempts = 0;
         loop {
-            match
-                send_client.send_transaction_with_config(&tx, RpcSendTransactionConfig {
-                    skip_preflight: true,
-                    ..Default::default()
-                }).await
-            {
-                Ok(signature) => {
-                    println!("Transaction submitted successfully. Signature: {}", signature);
-                    // Wait for confirmation
-                    match
-                        client.confirm_transaction_with_spinner(
-                            &signature,
-                            &hash,
-                            client.commitment()
-                        ).await
-                    {
-                        Ok(_) => {
-                            println!("Mining transaction confirmed successfully");
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            println!("Transaction failed to confirm: {}", e);
+            progress_bar.set_message(format!("Submitting transaction... (attempt {})", attempts));
+
+            // Sign tx with a new blockhash (after approximately ~45 sec)
+            if attempts % 10 == 0 {
+                // Resign the tx
+                let (hash, _slot) = get_latest_blockhash_with_retries(&client).await?;
+
+                tx.sign(&[&signer], hash);
+            }
+
+            // Send transaction
+            attempts += 1;
+            match send_client.send_transaction_with_config(&tx, send_cfg).await {
+                Ok(sig) => {
+                    // Confirm transaction
+                    'confirm: for _ in 0..CONFIRM_RETRIES {
+                        tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
+                        match client.get_signature_statuses(&[sig]).await {
+                            Ok(signature_statuses) => {
+                                for status in signature_statuses.value {
+                                    if let Some(status) = status {
+                                        if let Some(err) = status.err {
+                                            match err {
+                                                // Instruction error
+                                                solana_sdk::transaction::TransactionError::InstructionError(
+                                                    _,
+                                                    err,
+                                                ) => {
+                                                    match err {
+                                                        // Custom instruction error, parse into OreError
+                                                        solana_program::instruction::InstructionError::Custom(
+                                                            err_code,
+                                                        ) => {
+                                                            match err_code {
+                                                                e if
+                                                                    e ==
+                                                                    (OreError::NeedsReset as u32)
+                                                                => {
+                                                                    attempts = 0;
+                                                                    log_error(
+                                                                        &progress_bar,
+                                                                        "Needs reset. Retrying...",
+                                                                        false
+                                                                    );
+                                                                    break 'confirm;
+                                                                }
+                                                                _ => {
+                                                                    log_error(
+                                                                        &progress_bar,
+                                                                        &err.to_string(),
+                                                                        true
+                                                                    );
+                                                                    return Err(ClientError {
+                                                                        request: None,
+                                                                        kind: ClientErrorKind::Custom(
+                                                                            err.to_string()
+                                                                        ),
+                                                                    });
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Non custom instruction error, return
+                                                        _ => {
+                                                            log_error(
+                                                                &progress_bar,
+                                                                &err.to_string(),
+                                                                true
+                                                            );
+                                                            return Err(ClientError {
+                                                                request: None,
+                                                                kind: ClientErrorKind::Custom(
+                                                                    err.to_string()
+                                                                ),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+
+                                                // Non instruction error, return
+                                                _ => {
+                                                    log_error(
+                                                        &progress_bar,
+                                                        &err.to_string(),
+                                                        true
+                                                    );
+                                                    return Err(ClientError {
+                                                        request: None,
+                                                        kind: ClientErrorKind::Custom(
+                                                            err.to_string()
+                                                        ),
+                                                    });
+                                                }
+                                            }
+                                        } else if
+                                            let Some(confirmation) = status.confirmation_status
+                                        {
+                                            match confirmation {
+                                                TransactionConfirmationStatus::Processed => {}
+                                                | TransactionConfirmationStatus::Confirmed
+                                                | TransactionConfirmationStatus::Finalized => {
+                                                    let now = Local::now();
+                                                    let formatted_time = now
+                                                        .format("%Y-%m-%d %H:%M:%S")
+                                                        .to_string();
+                                                    progress_bar.println(
+                                                        format!("  Timestamp: {}", formatted_time)
+                                                    );
+                                                    progress_bar.finish_with_message(
+                                                        format!("{} {}", "OK".bold().green(), sig)
+                                                    );
+                                                    return Ok(sig);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Handle confirmation errors
+                            Err(err) => {
+                                log_error(&progress_bar, &err.kind().to_string(), false);
+                            }
                         }
                     }
                 }
-                Err(e) => {
-                    println!("Mining transaction failed: {}", e);
+
+                // Handle submit errors
+                Err(err) => {
+                    log_error(&progress_bar, &err.kind().to_string(), false);
                 }
             }
 
-            retry_count += 1;
-            if retry_count >= MAX_RETRIES {
-                return Err(format!("Max retries exceeded"));
+            // Retry
+            tokio::time::sleep(Duration::from_millis(GATEWAY_DELAY)).await;
+            if attempts > GATEWAY_RETRIES {
+                log_error(&progress_bar, "Max retries", true);
+                return Err(ClientError {
+                    request: None,
+                    kind: ClientErrorKind::Custom("Max retries".into()),
+                });
             }
-
-            println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
     }
+}
 
-    fn get_tip_transfer_ix(&self, from: Pubkey, amount: u64) -> ClientResult<Instruction> {
-        const TIPS: [&str; 8] = [
-            "96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5",
-            "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ2bU7gRe",
-            "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
-            "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49",
-            "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh",
-            "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
-            "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL",
-            "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT",
-        ];
-
-        let to = Pubkey::from_str(TIPS.choose(&mut rand::thread_rng()).unwrap());
-
-        Ok(transfer(&from, &to.unwrap(), amount))
+fn log_error(progress_bar: &ProgressBar, err: &str, finish: bool) {
+    if finish {
+        progress_bar.finish_with_message(format!("{} {}", "ERROR".bold().red(), err));
+    } else {
+        progress_bar.println(format!("  {} {}", "ERROR".bold().red(), err));
     }
 }

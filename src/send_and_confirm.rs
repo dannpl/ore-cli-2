@@ -11,7 +11,6 @@ use solana_sdk::{
 };
 
 use crate::Miner;
-use crate::utils::get_latest_blockhash_with_retries;
 
 const MAX_RETRIES: u32 = 5;
 
@@ -33,12 +32,9 @@ impl Miner {
 
         final_ixs.extend_from_slice(ixs);
 
-        let (hash, _slot) = match get_latest_blockhash_with_retries(&send_client).await {
-            Ok((hash, slot)) => (hash, slot),
-            Err(_e) => {
-                return Err(());
-            }
-        };
+        let (hash, _slot) = client
+            .get_latest_blockhash_with_commitment(self.rpc_client.commitment()).await
+            .unwrap();
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
 

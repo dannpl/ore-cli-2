@@ -7,15 +7,10 @@ use ore_api::{
 };
 use ore_utils::AccountDeserialize;
 use serde::Deserialize;
-use solana_client::client_error::{ ClientError, ClientErrorKind };
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_program::{ pubkey::Pubkey, sysvar };
-use solana_sdk::{ clock::Clock, hash::Hash };
+use solana_sdk::clock::Clock;
 use spl_associated_token_account::get_associated_token_address;
-use tokio::time::sleep;
-
-pub const BLOCKHASH_QUERY_RETRIES: usize = 5;
-pub const BLOCKHASH_QUERY_DELAY: u64 = 500;
 
 pub async fn _get_treasury(client: &RpcClient) -> Treasury {
     let data = client
@@ -29,34 +24,6 @@ pub async fn get_config(client: &RpcClient) -> Config {
         .get_account_data(&CONFIG_ADDRESS).await
         .expect("Failed to get config account");
     *Config::try_from_bytes(&data).expect("Failed to parse config account")
-}
-
-pub async fn get_latest_blockhash_with_retries(
-    client: &RpcClient
-) -> Result<(Hash, u64), ClientError> {
-    let mut attempts = 0;
-
-    loop {
-        if
-            let Ok((hash, slot)) = client.get_latest_blockhash_with_commitment(
-                client.commitment()
-            ).await
-        {
-            return Ok((hash, slot));
-        }
-
-        // Retry
-        sleep(Duration::from_millis(BLOCKHASH_QUERY_DELAY)).await;
-        attempts += 1;
-        if attempts >= BLOCKHASH_QUERY_RETRIES {
-            return Err(ClientError {
-                request: None,
-                kind: ClientErrorKind::Custom(
-                    "Max retries reached for latest blockhash query".into()
-                ),
-            });
-        }
-    }
 }
 
 pub async fn get_proof_with_authority(client: &RpcClient, authority: Pubkey) -> Proof {

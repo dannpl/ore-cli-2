@@ -8,7 +8,6 @@ use solana_sdk::{
     signature::Signer,
     transaction::Transaction,
 };
-use solana_sdk::commitment_config::CommitmentConfig;
 
 use crate::Miner;
 
@@ -37,7 +36,7 @@ impl Miner {
         final_ixs.extend_from_slice(ixs);
 
         let (hash, _slot) = client
-            .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed()).await
+            .get_latest_blockhash_with_commitment(client.commitment()).await
             .map_err(|e| format!("Failed to get latest blockhash: {}", e))?;
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
@@ -56,7 +55,7 @@ impl Miner {
                         client.confirm_transaction_with_spinner(
                             &signature,
                             &hash,
-                            CommitmentConfig::processed()
+                            client.commitment()
                         ).await
                     {
                         Ok(_) => {
@@ -75,7 +74,6 @@ impl Miner {
 
             retry_count += 1;
             if retry_count >= MAX_RETRIES {
-                println!("Max retries exceeded. Aborting.");
                 return Err(format!("Max retries exceeded"));
             }
 

@@ -77,19 +77,31 @@ impl Miner {
                 nonce_indices.as_slice()
             ).await;
 
-            // Submit transaction
-            let _ = self.send_and_confirm(
-                &[
-                    ore_api::instruction::auth(proof_pubkey(miner)),
-                    mine(
-                        signer.pubkey(),
-                        Pubkey::from_str("5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9").unwrap(),
-                        Pubkey::from_str("6btvikiSJwq7rArfD9s77g1EBnurMFQ1rxBwUfxY2jU8").unwrap(),
-                        self.find_bus().await,
-                        solution
-                    ),
-                ]
-            ).await;
+            match
+                self.send_and_confirm(
+                    &[
+                        ore_api::instruction::auth(proof_pubkey(miner)),
+                        mine(
+                            signer.pubkey(),
+                            Pubkey::from_str(
+                                "5nsXYepY5h8LfbkE8aT79oy5w9eDSTJDUMf345JQdWJ9"
+                            ).unwrap(),
+                            Pubkey::from_str(
+                                "6btvikiSJwq7rArfD9s77g1EBnurMFQ1rxBwUfxY2jU8"
+                            ).unwrap(),
+                            self.find_bus().await,
+                            solution
+                        ),
+                    ]
+                ).await
+            {
+                Ok(_) => {
+                    println!("Mining transaction successful");
+                }
+                Err(e) => {
+                    println!("Mining transaction failed: {}. Continuing to next iteration.", e);
+                }
+            }
         }
     }
 

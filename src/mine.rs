@@ -13,7 +13,6 @@ use solana_sdk::signer::Signer;
 
 use crate::{
     args::MineArgs,
-    send_and_confirm::ComputeBudget,
     utils::{
         amount_u64_to_string,
         get_clock,
@@ -89,8 +88,7 @@ impl Miner {
                         self.find_bus().await,
                         solution
                     ),
-                ],
-                ComputeBudget::Fixed(500_000)
+                ]
             ).await;
         }
     }

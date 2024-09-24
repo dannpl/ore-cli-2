@@ -1,5 +1,4 @@
 use std::str::FromStr;
-
 use rand::seq::SliceRandom;
 use solana_client::client_error::Result as ClientResult;
 use solana_program::{ instruction::Instruction, pubkey::Pubkey, system_instruction::transfer };
@@ -13,20 +12,10 @@ use solana_sdk::commitment_config::CommitmentConfig;
 
 use crate::Miner;
 
-pub enum ComputeBudget {
-    #[allow(dead_code)]
-    Dynamic,
-    Fixed(u32),
-}
-
 const MAX_RETRIES: u32 = 5;
 
 impl Miner {
-    pub async fn send_and_confirm(
-        &self,
-        ixs: &[Instruction],
-        compute_budget: ComputeBudget
-    ) -> Result<(), String> {
+    pub async fn send_and_confirm(&self, ixs: &[Instruction]) -> Result<(), String> {
         let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
         let client = self.rpc_client.clone();
@@ -34,7 +23,7 @@ impl Miner {
 
         let jito_tip = *self.tip.read().unwrap();
 
-        let mut final_ixs = vec![self.get_compute_budget_ix(compute_budget)];
+        let mut final_ixs = vec![ComputeBudgetInstruction::set_compute_unit_limit(500_000)];
 
         if jito_tip > 0 {
             send_client = self.jito_client.clone();
@@ -48,7 +37,7 @@ impl Miner {
         final_ixs.extend_from_slice(ixs);
 
         let (hash, _slot) = client
-            .get_latest_blockhash_with_commitment(self.rpc_client.commitment()).await
+            .get_latest_blockhash_with_commitment(CommitmentConfig::finalized()).await
             .map_err(|e| format!("Failed to get latest blockhash: {}", e))?;
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
@@ -92,13 +81,6 @@ impl Miner {
 
             println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-        }
-    }
-
-    fn get_compute_budget_ix(&self, compute_budget: ComputeBudget) -> Instruction {
-        match compute_budget {
-            ComputeBudget::Dynamic => ComputeBudgetInstruction::set_compute_unit_limit(1_400_000),
-            ComputeBudget::Fixed(cus) => ComputeBudgetInstruction::set_compute_unit_limit(cus),
         }
     }
 

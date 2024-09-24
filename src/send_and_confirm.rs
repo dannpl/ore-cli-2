@@ -33,7 +33,12 @@ impl Miner {
 
         final_ixs.extend_from_slice(ixs);
 
-        let (hash, _slot) = get_latest_blockhash_with_retries(&send_client).await.unwrap();
+        let (hash, _slot) = match get_latest_blockhash_with_retries(&send_client).await {
+            Ok((hash, slot)) => (hash, slot),
+            Err(_e) => {
+                return Err(());
+            }
+        };
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
 

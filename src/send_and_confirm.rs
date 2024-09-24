@@ -77,8 +77,6 @@ impl Miner {
                 }
                 Err(e) => {
                     println!("Mining transaction failed: {}", e);
-
-                    return Ok(());
                 }
             }
 

@@ -8,6 +8,7 @@ use solana_sdk::{
     signature::Signer,
     transaction::Transaction,
 };
+use solana_client::rpc_config::RpcSendTransactionConfig;
 
 use crate::Miner;
 
@@ -47,7 +48,12 @@ impl Miner {
         let mut retry_count = 0;
 
         loop {
-            match send_client.send_transaction(&tx).await {
+            match
+                send_client.send_transaction_with_config(&tx, RpcSendTransactionConfig {
+                    skip_preflight: true,
+                    ..Default::default()
+                }).await
+            {
                 Ok(signature) => {
                     println!("Transaction submitted successfully. Signature: {}", signature);
                     // Wait for confirmation

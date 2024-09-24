@@ -61,6 +61,10 @@ impl Miner {
                         }
                         Err(e) => {
                             println!("Transaction failed to confirm: {}", e);
+
+                            if e.to_string().contains("This transaction has already been processed") {
+                                return Ok(());
+                            }
                         }
                     }
                 }

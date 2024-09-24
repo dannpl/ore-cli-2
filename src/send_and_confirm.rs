@@ -9,6 +9,7 @@ use solana_sdk::{
     signature::Signer,
     transaction::Transaction,
 };
+use solana_sdk::commitment_config::CommitmentConfig;
 
 use crate::Miner;
 
@@ -25,7 +26,7 @@ impl Miner {
         &self,
         ixs: &[Instruction],
         compute_budget: ComputeBudget
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         let progress_bar = spinner::new_progress_bar();
         let signer = self.signer();
         let client = self.rpc_client.clone();
@@ -37,14 +38,18 @@ impl Miner {
 
         if jito_tip > 0 {
             send_client = self.jito_client.clone();
-            final_ixs.push(self.get_tip_transfer_ix(signer.pubkey(), jito_tip).unwrap());
+            final_ixs.push(
+                self
+                    .get_tip_transfer_ix(signer.pubkey(), jito_tip)
+                    .map_err(|e| format!("Failed to create tip transfer instruction: {}", e))?
+            );
         }
 
         final_ixs.extend_from_slice(ixs);
 
         let (hash, _slot) = client
             .get_latest_blockhash_with_commitment(self.rpc_client.commitment()).await
-            .unwrap();
+            .map_err(|e| format!("Failed to get latest blockhash: {}", e))?;
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));
 
@@ -62,7 +67,7 @@ impl Miner {
                         client.confirm_transaction_with_spinner(
                             &signature,
                             &hash,
-                            client.commitment()
+                            CommitmentConfig::processed()
                         ).await
                     {
                         Ok(_) => {
@@ -82,11 +87,10 @@ impl Miner {
             retry_count += 1;
             if retry_count >= MAX_RETRIES {
                 println!("Max retries exceeded. Aborting.");
-                return Err(());
+                return Err(format!("Max retries exceeded"));
             }
 
             println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);
-            // Optional: Add a delay before retrying
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
     }

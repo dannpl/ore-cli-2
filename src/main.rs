@@ -113,7 +113,7 @@ async fn main() {
     // Initialize miner.
     let cluster = args.rpc.unwrap_or(cli_config.json_rpc_url);
     let default_keypair = args.keypair.unwrap_or(cli_config.keypair_path.clone());
-    let rpc_client = RpcClient::new_with_commitment(cluster, CommitmentConfig::confirmed());
+    let rpc_client = RpcClient::new_with_commitment(cluster, CommitmentConfig::processed());
     let jito_client = RpcClient::new(
         "https://mainnet.block-engine.jito.wtf/api/v1/transactions".to_string()
     );

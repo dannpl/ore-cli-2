@@ -62,7 +62,11 @@ impl Miner {
                         Err(e) => {
                             println!("Transaction failed to confirm: {}", e);
 
-                            if e.to_string().contains("This transaction has already been processed") {
+                            if
+                                e
+                                    .to_string()
+                                    .contains("This transaction has already been processed")
+                            {
                                 return Ok(());
                             }
                         }
@@ -70,13 +74,16 @@ impl Miner {
                 }
                 Err(e) => {
                     println!("Mining transaction failed: {}", e);
+
+                    return Ok(());
                 }
             }
 
             retry_count += 1;
             if retry_count >= MAX_RETRIES {
                 println!("Max retries exceeded. Aborting.");
-                return Err(());
+
+                return Ok(());
             }
 
             println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);

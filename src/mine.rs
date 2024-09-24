@@ -46,11 +46,7 @@ impl Miner {
             .collect();
 
         loop {
-            let proof = get_updated_proof_with_authority(
-                &self.rpc_client,
-                miner,
-                last_hash_at
-            ).await;
+            let proof = get_updated_proof_with_authority(&self.rpc_client, miner).await;
 
             println!(
                 "\n\nStake: {} ORE\n{}  Multiplier: {:12}x",

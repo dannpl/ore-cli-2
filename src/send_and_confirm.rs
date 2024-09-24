@@ -60,6 +60,7 @@ impl Miner {
                     {
                         Ok(_) => {
                             println!("Mining transaction confirmed successfully");
+
                             return Ok(());
                         }
                         Err(e) => {
@@ -84,7 +85,7 @@ impl Miner {
             if retry_count >= MAX_RETRIES {
                 println!("Max retries exceeded. Aborting.");
 
-                return Ok(());
+                return Err(());
             }
 
             println!("Retrying... (Attempt {} of {})", retry_count + 1, MAX_RETRIES);

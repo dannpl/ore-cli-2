@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use cached::proc_macro::cached;
 use ore_api::{
     consts::{ CONFIG_ADDRESS, MINT_ADDRESS, PROOF, TOKEN_DECIMALS, TREASURY_ADDRESS },
@@ -31,18 +29,8 @@ pub async fn get_proof_with_authority(client: &RpcClient, authority: Pubkey) -> 
     get_proof(client, proof_address).await
 }
 
-pub async fn get_updated_proof_with_authority(
-    client: &RpcClient,
-    authority: Pubkey,
-    lash_hash_at: i64
-) -> Proof {
-    loop {
-        let proof = get_proof_with_authority(client, authority).await;
-        if proof.last_hash_at.gt(&lash_hash_at) {
-            return proof;
-        }
-        tokio::time::sleep(Duration::from_millis(1_000)).await;
-    }
+pub async fn get_updated_proof_with_authority(client: &RpcClient, authority: Pubkey) -> Proof {
+    get_proof_with_authority(client, authority).await
 }
 
 pub async fn get_proof(client: &RpcClient, address: Pubkey) -> Proof {

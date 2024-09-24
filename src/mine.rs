@@ -96,7 +96,7 @@ impl Miner {
                 ).await
             {
                 Ok(_) => {
-                    println!("Mining transaction successful");
+                    println!("Done mining");
                 }
                 Err(e) => {
                     println!("Mining transaction failed: {}. Continuing to next iteration.", e);

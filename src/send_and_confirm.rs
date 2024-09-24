@@ -23,7 +23,10 @@ impl Miner {
 
         let jito_tip = *self.tip.read().unwrap();
 
-        let mut final_ixs = vec![ComputeBudgetInstruction::set_compute_unit_limit(500_000)];
+        let mut final_ixs = vec![
+            ComputeBudgetInstruction::set_compute_unit_limit(500_000),
+            ComputeBudgetInstruction::set_compute_unit_price(5000)
+        ];
 
         if jito_tip > 0 {
             send_client = self.jito_client.clone();

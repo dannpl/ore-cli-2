@@ -37,7 +37,7 @@ impl Miner {
         final_ixs.extend_from_slice(ixs);
 
         let (hash, _slot) = client
-            .get_latest_blockhash_with_commitment(CommitmentConfig::finalized()).await
+            .get_latest_blockhash_with_commitment(CommitmentConfig::confirmed()).await
             .map_err(|e| format!("Failed to get latest blockhash: {}", e))?;
 
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&signer.pubkey()));

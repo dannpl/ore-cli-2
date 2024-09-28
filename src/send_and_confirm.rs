@@ -25,7 +25,7 @@ impl Miner {
 
         let mut final_ixs = vec![
             ComputeBudgetInstruction::set_compute_unit_limit(500_000),
-            ComputeBudgetInstruction::set_compute_unit_price(5000)
+            ComputeBudgetInstruction::set_compute_unit_price(10000)
         ];
 
         if jito_tip > 0 {
